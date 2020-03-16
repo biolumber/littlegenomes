@@ -1,0 +1,1 @@
+A python script to produce RNA virus genome diagrams in svg format from annotation data. The idea is to automate a task that would be a bit tiresome if done manually for large numbers of viruses found through metagenomic investigations.
