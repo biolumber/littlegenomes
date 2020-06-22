@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 # Callum Le Lay 190124
 # Usage: littlegenomes.py GENOMES_TSV ANNOTATIONS_TSV OUPUT_NAME
@@ -7,21 +7,34 @@
 import svgwrite
 import sys
 from math import ceil
+import argparse
+
+# Argument parsing
+parser = argparse.ArgumentParser(description="Takes tables with descriptions of small genomes and their annotations and produces diagramtic representations of these viruses (.svg).")
+parser.add_argument("geno_f", metavar="<GENOME_TABLE>", help="tab-delimited table with genome names corresponding to annotation table and sizes (in bp/nt) of the genomes")
+parser.add_argument("anno_f", metavar="<ANNOTATION_TABLE>", help="tab-delimited annotation table in littlegenomes format")
+parser.add_argument("out_f", metavar="<OUTPUT_FILE>", help=".svg output filename")
+parser.add_argument("--squeeze", choices=['x','y',"both"], default=None, help="genomes are scaled by height to fit in a A4 sized page")
+parser.add_argument("--max_height",default=950,type=float,help="max size of figure, if y-axis squeeze is used will scale all genomes to fit within this height - defaults to A4 height")
+parser.add_argument("--incre_height",default=100,type=int, help="space between individual sequences on the y-axis")
+
+args = parser.parse_args()
 
 class littlegenomes():
-	def __init__(self, geno_f, anno_f, out_f):
+	def __init__(self, geno_f, anno_f, out_f, squeeze,maxheight,incre):
 		# Set up of object variables
+		self.squeeze = squeeze
 		self.names =[] # List of names for genomes to produce graphics for
 		self.data = {} # Dictionary of annotation data, with genome names as keys
 		self.x = 50 # x and y are the coordinates for the top left corner of the diagram
-                self.y = -1000 
-                self.yincre = 100 # Distance objects i.e. the genome diagrams
-                self.maxHeight = 950.0 # Entire figure cannot exceed this number of px for height and width
-                self.maxWidth = 550.0 
+		self.y = -1000 
+		self.yincre = incre # Distance objects i.e. the genome diagrams
+		self.maxHeight = maxheight # Entire figure cannot exceed this number of px for height and width
+		self.maxWidth = 550.0 
 		self.xscale = 1 
 		self.yscale = 1 
-			# x and y scale are applied to diagrams to fit them within the specifed max width and height
-                self.nameGap = 10 # Distance between name label and the end of the genome diagram
+		# x and y scale are applied to diagrams to fit them within the specifed max width and height
+		self.nameGap = 10 # Distance between name label and the end of the genome diagram
 		self.textLength = 100 # Obsolete DELETE
 		self.tick = 500.0 # Number of nucleotides at which the scalebar shows a tick
 		
@@ -45,13 +58,15 @@ class littlegenomes():
 				'pink':svgwrite.rgb(224,117,173),
 				'gray':svgwrite.rgb(146,148,151),
 				'yellow':svgwrite.rgb(249,236,49),
+				'purple':svgwrite.rgb(228,116,255),
 				'black':'black',
 				'white':'white'}
 		
 		# Open given files, extract the data and format for use by object
 		self.loadData(geno_f,anno_f)
 		# After we know how many genomes will be displayed and their lengths, we can set scaling constants
-                self.scaleData() 
+		if self.squeeze:
+			self.scaleData(self.squeeze) 
 
 		# Sort annotations in order of layer (makes it easy to render them in the correct order)
 		for i in self.names:
@@ -91,21 +106,45 @@ class littlegenomes():
 		f = open(anno_f,'r')
 		for line in f.readlines():
 			line = line.strip().split('\t')
-			anno = (int(line[1]), int(line[2]), line[3], int(line[4]), line[5], line[6], line[7]) 
-			# (start,end,readframe,layer,colour,label,width) - also want some error handling here
+			if not line[3] in self.annoOffset.keys():
+				raise Exception("Error: Readframe option incorrect:\n",line[3],line)
+			elif not line[5] in self.annoColour.keys():
+				raise Exception("Error: Colour option incorrect:\n",line[5],line)
+			elif not line[7] in self.annoWidth.keys():
+				raise Exception("Error: Width option incorrect:\n",line[7],line)
+
+			try:
+				anno = (int(line[1]), int(line[2]), line[3], int(line[4]), line[5], line[6], line[7])
+				
+				if not anno[2] in self.annoOffset.keys():
+					raise Exception("Readframe option incorrect")
+				elif not anno[4] in self.annoColour.keys():
+                                        raise Exception("Colour option incorrect") 
+				elif not anno[6] in self.annoWidth.keys():
+                                        raise Exception("Width option incorrect")
+			except:
+				print("Error: annotation is in incorrect format:\n",line,
+					"\nCorrect format should fit:\n",
+					"<genome name>\\t<start position in genome>\\t<end position in genome>\\t<readframe{-3,-2,-1,0,1,2,3}>\\t<layer {0,1,2,3}>\\t<colour>\\t<annotation label>\\t<width of annotation graphic {s,m,l}>" )
+				sys.exit()
+			if not line[0] in self.data.keys():
+				raise Exception("This annotation's name does not correspond to a genome:\n",
+					line)
 			self.data[line[0]].append(anno) # Probably should check value is in self.names first
 		f.close()
 	
-	def scaleData(self):
+	def scaleData(self, which):
 		# Work out the height of this figure - how many genomes spaced how far apart?
 		height = len(self.names)*self.yincre
+		
 		# Won't scale the height of the genomes unless it looks like we will need more than a A4 page worth
-		if height > self.maxHeight:
+		if height > self.maxHeight and which != "x":
 			self.yscale = self.maxHeight/height
 		
-		# Always scale the x axis
-		width = max([self.data[i][0] for i in self.names])
-		self.xscale = self.maxWidth/width
+		# Scale the x axis
+		if which != "y":
+			width = max([self.data[i][0] for i in self.names])
+			self.xscale = self.maxWidth/width
 
 	def drawGenome(self, name, start):
 		dwg = self.dwg
@@ -127,7 +166,7 @@ class littlegenomes():
 			# Add rectangle
 			dwg.add(dwg.rect(insert=pos,size=dim,stroke='black',fill=self.annoColour[a[4]]))
 			# Add text
-			dwg.add(dwg.text(a[5],insert=(pos[0]+dim[0]/2,pos[1]+dim[1]-(wid-9)/2),
+			dwg.add(dwg.text(a[5],insert=(pos[0]+dim[0]/2,pos[1]+(wid-6)/2*self.yscale),
 				style=self.annoTextStyle)) # Kind of a messy hack to get the text to sit in the right place
 	
 	def drawScaleBar(self, start):
@@ -163,10 +202,11 @@ class littlegenomes():
 		# Lastly, the units for the scalebar is labelled at the end
 		dwg.add(dwg.text('nt', (end[0],end[1]-emph_size[0]), style=self.sbTextStyle))
 		
-lg = littlegenomes(sys.argv[1],sys.argv[2], sys.argv[3])
+lg = littlegenomes(args.geno_f, args.anno_f, args.out_f, args.squeeze, args.max_height, args.incre_height)
 lg.main()
 
 ## Error handling
-## Add ability to process fasta files
 ## Better text scaling -> wrap?
+## Labels offset when they do not fit
+## Add ability to process fasta files
 ## Individual scalebars?
