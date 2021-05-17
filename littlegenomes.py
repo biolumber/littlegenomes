@@ -64,6 +64,8 @@ class littlegenomes():
 		
 		# Open given files, extract the data and format for use by object
 		self.loadData(geno_f,anno_f)
+		self.mostnt = max([self.data[i][0] for i in self.names]) # Lenght in nt of the longest genome 
+
 		# After we know how many genomes will be displayed and their lengths, we can set scaling constants
 		if self.squeeze:
 			self.scaleData(self.squeeze) 
@@ -134,6 +136,8 @@ class littlegenomes():
 		f.close()
 	
 	def scaleData(self, which):
+		print("This is what I get: {}".format(which))
+		
 		# Work out the height of this figure - how many genomes spaced how far apart?
 		height = len(self.names)*self.yincre
 		
@@ -143,8 +147,7 @@ class littlegenomes():
 		
 		# Scale the x axis
 		if which != "y":
-			width = max([self.data[i][0] for i in self.names])
-			self.xscale = self.maxWidth/width
+			self.xscale = self.maxWidth/self.mostnt
 
 	def drawGenome(self, name, start):
 		dwg = self.dwg
@@ -171,9 +174,9 @@ class littlegenomes():
 	
 	def drawScaleBar(self, start):
 		# I want the length of the scalebar (in pixels) to be the largest size rounded up to the nearest 500bp
-		scale_len = ceil((self.maxWidth/self.xscale)/self.tick)*self.tick*self.xscale # ceil rounds decimals
+		scale_len = ceil(self.mostnt/self.tick)*self.tick*self.xscale # ceil rounds decimals
 		scale_incre = self.tick*self.xscale
-		
+
 		dwg = self.dwg
 
 		# Creates a group - the scalebar is made up of a bunch of line objects
@@ -188,19 +191,22 @@ class littlegenomes():
 		emph_size = (8,5) # Dimensions for a larger than normal line
 		emph = 0 # Are we emphasizing the current tick
 		nt = 0 # Distance in nucleotides along the scalebar
-		while(tick < scale_len):
+		while(tick <= scale_len):
 			s = (start[0]+tick, start[1])
 			e = (start[0]+tick, start[1]-emph_size[emph])
 			if not nt == 0: # We never emphasize tick 0
 				sb.add(dwg.line(s, e,stroke='black'))
 			if not nt == 0 and emph == 0:	
-				dwg.add(dwg.text(int(nt), e, style=self.sbTextStyle))
+				if tick == scale_len:
+					dwg.add(dwg.text("{} nt".format(int(nt)), e, style=self.sbTextStyle))
+				else:
+					dwg.add(dwg.text(int(nt), e, style=self.sbTextStyle))
 			nt += self.tick
 			tick += scale_incre
 			emph = 1 if emph == 0 else 0
 
 		# Lastly, the units for the scalebar is labelled at the end
-		dwg.add(dwg.text('nt', (end[0],end[1]-emph_size[0]), style=self.sbTextStyle))
+		#dwg.add(dwg.text('nt', (end[0],end[1]-emph_size[0]), style=self.sbTextStyle))
 		
 lg = littlegenomes(args.geno_f, args.anno_f, args.out_f, args.squeeze, args.max_height, args.incre_height)
 lg.main()

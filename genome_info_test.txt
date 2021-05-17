@@ -1,5 +1,0 @@
-test virus A	3000
-test virus B	1000
-test virus C	0
-test virus D	346
-Wuhan pillworm virus 2 [WHSFII14781]	12548

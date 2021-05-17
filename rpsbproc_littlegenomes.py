@@ -43,11 +43,18 @@ for line in lines:
 			strt = line[4]
 			end = line[5]
 			label = line[9]+' ('+line[8]+')' 
-			annos.append((name,strt,end,'NA','NA','NA',label,'m'))
+			annos.append((name,strt,end,'0','0','red',label,'s'))
 
 # Output annotation table
+if args.anno_file:
+	f = open(args.anno_file,'w')
 for line in annos:
-	print(args.separator.join(line))	
+	if args.anno_file:
+		f.write(args.separator.join(line)+"\n")
+	else:
+		print(args.separator.join(line))
+if args.anno_file:
+	f.close()	
 
 # Output genome table
 if args.genome_file:
