@@ -15,23 +15,24 @@ parser.add_argument("geno_f", metavar="<GENOME_TABLE>", help="tab-delimited tabl
 parser.add_argument("anno_f", metavar="<ANNOTATION_TABLE>", help="tab-delimited annotation table in littlegenomes format")
 parser.add_argument("out_f", metavar="<OUTPUT_FILE>", help=".svg output filename")
 parser.add_argument("--squeeze", choices=['x','y',"both"], default=None, help="genomes are scaled by height to fit in a A4 sized page")
+parser.add_argument("--multi", default=False, action="store_true", help="genomes are grouped by size and displayed with individual scaling and scalebars to aid readability in that case of large numbers of genomes")
 parser.add_argument("--max_height",default=950,type=float,help="max size of figure, if y-axis squeeze is used will scale all genomes to fit within this height - defaults to A4 height")
 parser.add_argument("--incre_height",default=100,type=int, help="space between individual sequences on the y-axis")
 
 args = parser.parse_args()
 
 class littlegenomes():
-	def __init__(self, geno_f, anno_f, out_f, squeeze,maxheight,incre):
+	def __init__(self, geno_f, anno_f, out_f, squeeze, multi, maxheight,incre):
 		# Set up of object variables
-		self.squeeze = squeeze
 		self.names =[] # List of names for genomes to produce graphics for
 		self.data = {} # Dictionary of annotation data, with genome names as keys
+		self.grouping = {} # Dictionary of which genomes belong to which groups
 		self.x = 50 # x and y are the coordinates for the top left corner of the diagram
 		self.y = -1000 
 		self.yincre = incre # Distance objects i.e. the genome diagrams
 		self.maxHeight = maxheight # Entire figure cannot exceed this number of px for height and width
 		self.maxWidth = 550.0 
-		self.xscale = 1 
+		self.xscale = [1] # This guy is a list, because if we group genomes each group gets its own xscaling
 		self.yscale = 1 
 		# x and y scale are applied to diagrams to fit them within the specifed max width and height
 		self.nameGap = 10 # Distance between name label and the end of the genome diagram
@@ -45,7 +46,7 @@ class littlegenomes():
 		self.annoTextStyle = "font-variant:normal;font-weight:bold;font-stretch:normal;font-size:10px;font-family:Arial;-inkscape-font-specification:Arial-BoldMT;writing-mode:lr-tb;fill:#231f20;fill-opacity:1;fill-rule:nonzero;stroke:none;"+"text-anchor:middle;dominant-baseline:hanging;"
 		self.sbTextStyle = "font-variant:normal;font-weight:bold;font-stretch:normal;font-size:10px;font-family:Arial;-inkscape-font-specification:Arial-BoldMT;writing-mode:lr-tb;fill:#231f20;fill-opacity:1;fill-rule:nonzero;stroke:none;text-anchor:middle;"
 		
-		# The genome diagrams represent rectangles to represent annotations. The following are some constants 
+		# The genome diagrams represent rectangles to represent annotations. The following are some constants
 		# for use when creating these annotation representaitons
 		self.annoWidth = {'s':15, 'm':22, 'l':30}
 		self.annoOffset = {'-1':0, '0':0.5, '1':1}
@@ -64,12 +65,16 @@ class littlegenomes():
 		
 		# Open given files, extract the data and format for use by object
 		self.loadData(geno_f,anno_f)
-		self.mostnt = max([self.data[i][0] for i in self.names]) # Lenght in nt of the longest genome 
 
 		# After we know how many genomes will be displayed and their lengths, we can set scaling constants
-		if self.squeeze:
-			self.scaleData(self.squeeze) 
-
+		lengths = [self.data[i][0] for i in self.names]
+		if squeeze:
+			scales = self.scaleData(squeeze,max(lengths),len(self.names)) 
+			self.xscale[0] = scales[0]
+			self.yscale = scales[1]
+		if multi:
+                        self.groupGenomes(squeeze,lengths)
+		
 		# Sort annotations in order of layer (makes it easy to render them in the correct order)
 		for i in self.names:
 			size = self.data[i].pop(0)
@@ -80,21 +85,31 @@ class littlegenomes():
 		self.dwg = svgwrite.Drawing(out_f, debug=True)
 
 	def main(self):
-		# Creates scalebar from top left corner
-		i = 0
 		loc = (self.x,self.y)
-		self.drawScaleBar(loc)
-
-		# For each genome to be displayed
-		while i < len(self.names):
+		
+		# For each group of genomes (without --multi this only runs once)
+		group = 0
+		while group < len(self.grouping):
+			group_names = self.grouping[group]
+			xscale = self.xscale[group]
+			
+			sb_length = ceil(max([self.data[i][0] for i in group_names])/self.tick)
+			self.drawScaleBar(loc, sb_length, self.xscale[group])			
 			loc = (loc[0],loc[1]+(self.yincre*self.yscale))
-			name = self.names[i]
-			self.drawGenome(name,loc)
-			i += 1
+
+			# For each genome to be displayed
+			i = 0
+			while i < len(group_names):
+				self.drawGenome(group_names[i],loc,self.xscale[group])
+
+				loc = (loc[0],loc[1]+(self.yincre*self.yscale))
+				i += 1
+			
+			group += 1
 		
 		# After scalebar and genome diagrams have been designed, svgwrite saves to file
-		self.dwg.save()
-			
+		self.dwg.save()		
+
 	def loadData(self, geno_f, anno_f):
 		# Get the names and lengths of the genomes
 		f = open(geno_f,'r')
@@ -103,6 +118,7 @@ class littlegenomes():
 			self.names.append(line[0]) # Names go here
 			self.data[line[0]] = [int(line[1])] # Name is dict key to list, list starts with genome length
 		f.close()
+		self.grouping[0] = self.names # Sets grouping to default, where all genomes belong to one group
 		
 		# Get the annotation data from the table and store in list (self.data[name])
 		f = open(anno_f,'r')
@@ -135,26 +151,52 @@ class littlegenomes():
 			self.data[line[0]].append(anno) # Probably should check value is in self.names first
 		f.close()
 	
-	def scaleData(self, which):
-		print("This is what I get: {}".format(which))
-		
+	def scaleData(self, squeeze, scale_to, num_genomes):
 		# Work out the height of this figure - how many genomes spaced how far apart?
-		height = len(self.names)*self.yincre
+		height = num_genomes*self.yincre
 		
 		# Won't scale the height of the genomes unless it looks like we will need more than a A4 page worth
-		if height > self.maxHeight and which != "x":
-			self.yscale = self.maxHeight/height
+		if height > self.maxHeight and squeeze != "x":
+			yscale = self.maxHeight/height
+		else:
+			yscale = self.yscale
 		
 		# Scale the x axis
-		if which != "y":
-			self.xscale = self.maxWidth/self.mostnt
+		if squeeze != "y":
+			xscale = self.maxWidth/scale_to
+		else:
+			xscale = self.xscale
+		
+		return((xscale,yscale))
+	
+	def groupGenomes(self, squeeze, lengths):
+		# Get indexes for sorted list - will correspond to self.names
+		sorted_lengths = sorted(lengths,reverse=True)
+		sorted_indexs = sorted(range(len(lengths)), key=lambda x: lengths[x], reverse=True)		
+		
+		# Go through and choose where the groups start and end
+		# Will make groups where members are at least 80% of the scalebar and assigns x-scales for each group
+		longest = max(lengths)
+		threshold = 0.8 # 80% of the scalebar
+		group = 0
+		i = 0
+		self.grouping[group] = []
+		while i < len(sorted_lengths):
+			length = sorted_lengths[i]
+			if length < threshold*longest:
+				longest = length
+				group += 1
+				self.grouping[group] = []
+				self.xscale.append(self.scaleData(squeeze,longest,1)[0])
+			self.grouping[group].append(self.names[sorted_indexs[i]]) # Change self.grouping to assign genomes to groups 
+			i += 1
 
-	def drawGenome(self, name, start):
+	def drawGenome(self, name, start, xscale):
 		dwg = self.dwg
 
 		# Draw base line of genome
-		length = self.data[name][0]*self.xscale
-		end = (start[0]+length,start[1])
+		length = self.data[name][0] * xscale
+		end = (start[0]+length, start[1])
 		dwg.add(dwg.line(start, end, stroke='black')) # Have to work out the rgb bit svgwrite.rgb(10,10,16,'%'))
 
 		# Add genome title
@@ -163,8 +205,8 @@ class littlegenomes():
 		# For each annotation 
 		for a in self.data[name][1:]:
 			wid = self.annoWidth[a[6]]
-			pos = (start[0]+(a[0]*self.xscale),start[1]-self.annoOffset[a[2]]*self.yscale*wid)
-			dim = ((a[1]-a[0])*self.xscale,wid*self.yscale)
+			pos = (start[0]+(a[0]*xscale), start[1]-self.annoOffset[a[2]]*self.yscale*wid)
+			dim = ((a[1]-a[0])*xscale, wid*self.yscale)
 			#anno = dwg.add(dwg.g()) <- got sick of ungrouping when reformatting
 			# Add rectangle
 			dwg.add(dwg.rect(insert=pos,size=dim,stroke='black',fill=self.annoColour[a[4]]))
@@ -172,10 +214,10 @@ class littlegenomes():
 			dwg.add(dwg.text(a[5],insert=(pos[0]+dim[0]/2,pos[1]+(wid-6)/2*self.yscale),
 				style=self.annoTextStyle)) # Kind of a messy hack to get the text to sit in the right place
 	
-	def drawScaleBar(self, start):
+	def drawScaleBar(self, start, length, xscale):
 		# I want the length of the scalebar (in pixels) to be the largest size rounded up to the nearest 500bp
-		scale_len = ceil(self.mostnt/self.tick)*self.tick*self.xscale # ceil rounds decimals
-		scale_incre = self.tick*self.xscale
+		scale_len = length*self.tick*xscale # ceil rounds decimals
+		scale_incre = self.tick*xscale
 
 		dwg = self.dwg
 
@@ -208,11 +250,5 @@ class littlegenomes():
 		# Lastly, the units for the scalebar is labelled at the end
 		#dwg.add(dwg.text('nt', (end[0],end[1]-emph_size[0]), style=self.sbTextStyle))
 		
-lg = littlegenomes(args.geno_f, args.anno_f, args.out_f, args.squeeze, args.max_height, args.incre_height)
+lg = littlegenomes(args.geno_f, args.anno_f, args.out_f, args.squeeze, args.multi, args.max_height, args.incre_height)
 lg.main()
-
-## Error handling
-## Better text scaling -> wrap?
-## Labels offset when they do not fit
-## Add ability to process fasta files
-## Individual scalebars?
