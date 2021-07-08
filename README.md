@@ -5,4 +5,6 @@ I have worked on this previous to making a repository - from the 18/10/2018 to 2
 usage: littlegenomes.py [-h] [--squeeze {x,y,both}] [--max_height MAX_HEIGHT]
                         [--incre_height INCRE_HEIGHT]
                         <GENOME_TABLE> <ANNOTATION_TABLE> <OUTPUT_FILE>
-
+                        
+Please cite using the following:                       
+[![DOI](https://zenodo.org/badge/383994103.svg)](https://zenodo.org/badge/latestdoi/383994103)
