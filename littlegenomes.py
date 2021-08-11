@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-# Callum Le Lay 190124
+# Callum Le Lay 210811
 # Usage: littlegenomes.py GENOMES_TSV ANNOTATIONS_TSV OUPUT_NAME
 
 # Import
@@ -14,15 +14,16 @@ parser = argparse.ArgumentParser(description="Takes tables with descriptions of 
 parser.add_argument("geno_f", metavar="<GENOME_TABLE>", help="tab-delimited table with genome names corresponding to annotation table and sizes (in bp/nt) of the genomes")
 parser.add_argument("anno_f", metavar="<ANNOTATION_TABLE>", help="tab-delimited annotation table in littlegenomes format")
 parser.add_argument("out_f", metavar="<OUTPUT_FILE>", help=".svg output filename")
-parser.add_argument("--squeeze", choices=['x','y',"both"], default=None, help="genomes are scaled by height to fit in a A4 sized page")
-parser.add_argument("--multi", default=False, action="store_true", help="genomes are grouped by size and displayed with individual scaling and scalebars to aid readability in that case of large numbers of genomes")
-parser.add_argument("--max_height",default=950,type=float,help="max size of figure, if y-axis squeeze is used will scale all genomes to fit within this height - defaults to A4 height")
+parser.add_argument("--squeeze", choices=['x','y',"both"], default=None, help="genomes are scaled to fit in a A4 sized page")
+parser.add_argument("--multi", default=False, action="store_true", help="genomes are grouped by size and displayed with individual scaling and scalebars to aid readability in the case of large numbers of genomes")
+parser.add_argument("--max_height",default=950,type=float,help="max size of figure. If y-axis squeeze is used, this will scale all genomes to fit within this height - defaults to A4 height")
 parser.add_argument("--incre_height",default=100,type=int, help="space between individual sequences on the y-axis")
+parser.add_argument("--offset_shift",default=False,choices=['s','m','l'],help="size of which offset is a proportion of. Is the width of annotations by default")
 
 args = parser.parse_args()
 
 class littlegenomes():
-	def __init__(self, geno_f, anno_f, out_f, squeeze, multi, maxheight,incre):
+	def __init__(self, geno_f, anno_f, out_f, squeeze, multi, maxheight, incre, shift):
 		# Set up of object variables
 		self.names =[] # List of names for genomes to produce graphics for
 		self.data = {} # Dictionary of annotation data, with genome names as keys
@@ -35,13 +36,12 @@ class littlegenomes():
 		self.xscale = [1] # This guy is a list, because if we group genomes each group gets its own xscaling
 		self.yscale = 1 
 		# x and y scale are applied to diagrams to fit them within the specifed max width and height
+		self.shift = shift
 		self.nameGap = 10 # Distance between name label and the end of the genome diagram
-		self.textLength = 100 # Obsolete DELETE
 		self.tick = 500.0 # Number of nucleotides at which the scalebar shows a tick
 		
 		# These styles are specifically for getting text to display in the correct position when 
 		# opened in inkscape
-		#self.lineStyle = DELETE
 		self.textStyle = "font-variant:normal;font-weight:bold;font-stretch:normal;font-size:11.19999981px;font-family:Arial;-inkscape-font-specification:Arial-BoldMT;writing-mode:lr-tb;fill:#231f20;fill-opacity:1;fill-rule:nonzero;stroke:none"
 		self.annoTextStyle = "font-variant:normal;font-weight:bold;font-stretch:normal;font-size:10px;font-family:Arial;-inkscape-font-specification:Arial-BoldMT;writing-mode:lr-tb;fill:#231f20;fill-opacity:1;fill-rule:nonzero;stroke:none;"+"text-anchor:middle;dominant-baseline:hanging;"
 		self.sbTextStyle = "font-variant:normal;font-weight:bold;font-stretch:normal;font-size:10px;font-family:Arial;-inkscape-font-specification:Arial-BoldMT;writing-mode:lr-tb;fill:#231f20;fill-opacity:1;fill-rule:nonzero;stroke:none;text-anchor:middle;"
@@ -49,7 +49,7 @@ class littlegenomes():
 		# The genome diagrams represent rectangles to represent annotations. The following are some constants
 		# for use when creating these annotation representaitons
 		self.annoWidth = {'s':15, 'm':22, 'l':30}
-		self.annoOffset = {'-1':0, '0':0.5, '1':1}
+		self.annoOffset = lambda x:0.5*x
 		self.annoColour ={'orange':svgwrite.rgb(246,146,30),
 				'blue':svgwrite.rgb(35,192,240),
 				'red':svgwrite.rgb(236,28,36),
@@ -127,9 +127,8 @@ class littlegenomes():
 			if len(line) != 8:
 				raise Exception(
 "Error: Incorrect number of fields in annotation table input.\n Detected: {} instead of 8.".format(len(line)))
-			if not line[3] in self.annoOffset.keys():
-				raise Exception("Error: Readframe option incorrect:\n",line[3],line)
-			elif not line[5] in self.annoColour.keys():
+			# Need a test for if line[3] is a float here
+			if not line[5] in self.annoColour.keys():
 				raise Exception("Error: Colour option incorrect:\n",line[5],line)
 			elif not line[7] in self.annoWidth.keys():
 				raise Exception("Error: Width option incorrect:\n",line[7],line)
@@ -137,16 +136,14 @@ class littlegenomes():
 			try:
 				anno = (int(line[1]), int(line[2]), line[3], int(line[4]), line[5], line[6], line[7])
 				
-				if not anno[2] in self.annoOffset.keys():
-					raise Exception("Readframe option incorrect")
-				elif not anno[4] in self.annoColour.keys():
-                                        raise Exception("Colour option incorrect") 
+				if not anno[4] in self.annoColour.keys():
+					raise Exception("Colour option incorrect") 
 				elif not anno[6] in self.annoWidth.keys():
-                                        raise Exception("Width option incorrect")
+					raise Exception("Width option incorrect")
 			except:
 				print("Error: annotation is in incorrect format:\n",line,
 					"\nCorrect format should fit:\n",
-					"<genome name>\\t<start position in genome>\\t<end position in genome>\\t<readframe{-3,-2,-1,0,1,2,3}>\\t<layer {0,1,2,3}>\\t<colour>\\t<annotation label>\\t<width of annotation graphic {s,m,l}>" )
+					"<genome name>\\t<start position in genome>\\t<end position in genome>\\t<offset from line>{-1 being below, 0 on line, 1 above}\\t<layer {0,1,2,3}>\\t<colour>\\t<annotation label>\\t<width of annotation graphic {s,m,l}>" )
 				sys.exit()
 			if not line[0] in self.data.keys():
 				raise Exception("This annotation's name does not correspond to a genome:\n",
@@ -204,13 +201,14 @@ class littlegenomes():
 
 		# Add genome title
 		dwg.add(dwg.text(name, insert=(end[0]+self.nameGap,end[1]), style=self.textStyle))
-
+		
 		# For each annotation 
 		for a in self.data[name][1:]:
-			wid = self.annoWidth[a[6]]
-			pos = (start[0]+(a[0]*xscale), start[1]-self.annoOffset[a[2]]*self.yscale*wid)
+			wid = self.annoWidth[a[6]]*self.yscale
+			shift = self.annoWidth[self.shift]*self.yscale if self.shift else wid
+			offset = float(a[2])
+			pos = (start[0]+(a[0]*xscale), start[1]-(wid+shift*offset)/2)
 			dim = ((a[1]-a[0])*xscale, wid*self.yscale)
-			#anno = dwg.add(dwg.g()) <- got sick of ungrouping when reformatting
 			# Add rectangle
 			dwg.add(dwg.rect(insert=pos,size=dim,stroke='black',fill=self.annoColour[a[4]]))
 			# Add text
@@ -249,5 +247,5 @@ class littlegenomes():
 			tick += scale_incre
 			emph = 1 if emph == 0 else 0
 		
-lg = littlegenomes(args.geno_f, args.anno_f, args.out_f, args.squeeze, args.multi, args.max_height, args.incre_height)
+lg = littlegenomes(args.geno_f, args.anno_f, args.out_f, args.squeeze, args.multi, args.max_height, args.incre_height,args.offset_shift)
 lg.main()
